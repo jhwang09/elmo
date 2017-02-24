@@ -17,11 +17,17 @@ type Err interface {
 
 type Info map[string]interface{}
 
-func NewError(message string, info Info) Err {
+func NewError(message string) Err {
+	return newErr(message, nil, debug.Stack(), nil)
+}
+func NewErrorWithInfo(message string, info Info) Err {
 	return newErr(message, nil, debug.Stack(), info)
 }
 
-func NewStdError(stdErr error, info Info) Err {
+func NewStdError(stdErr error) Err {
+	return newErr("", stdErr, debug.Stack(), nil)
+}
+func NewStdErrorWithInfo(stdErr error, info Info) Err {
 	return newErr("", stdErr, debug.Stack(), info)
 }
 
