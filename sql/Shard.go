@@ -3,59 +3,71 @@ package sql
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"reflect"
 	"strconv"
 	"strings"
 
 	"github.com/jhwang09/elmo/errs"
+	"github.com/jmoiron/sqlx"
 )
 
 type TxFunc func(shard *Shard) errs.Err
 
-type Shard struct {
-	DBName  string
-	db      *sql.DB // Nil for transaction and autocommit shard structs
-	sqlConn interface {
-		Exec(query string, args ...interface{}) (sql.Result, error)
-		Query(query string, args ...interface{}) (*sql.Rows, error)
-	}
+type Conn interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
 }
 
-func (s *Shard) Transact(txFun TxFunc) errs.Err {
+func NewShard(DBName string, db *sqlx.DB) *Shard {
+	return &Shard{DBName, db, db}
+}
+
+type Shard struct {
+	DBName string
+	db     *sqlx.DB // Nil for transaction and autocommit shard structs
+	conn   Conn
+}
+
+func (s *Shard) Transact(txFunc TxFunc) errs.Err {
+	if s.db == nil {
+		return errs.NewError("This Shard is missing db")
+	}
+
 	conn, stdErr := s.db.Begin()
 	if stdErr != nil {
-		return errs.NewStdErrorWithInfo(stdErr, errs.Info{"Description": "Could not open transaction"})
+		return errs.NewStdError(stdErr)
 	}
 	defer func() {
 		if panicErr := recover(); panicErr != nil {
 			rbErr := conn.Rollback()
-			panic(errs.NewStdErrorWithInfo(rbErr, errs.Info{
+			log.Println(errs.NewStdErrorWithInfo(rbErr, errs.Info{
 				"Description": "Panic during sql transcation",
 				"PanicErr":    panicErr}))
 		}
 	}()
 
-	err := txFun(&Shard{s.DBName, nil, conn})
+	err := txFunc(&Shard{s.DBName, nil, conn})
 	if err != nil {
 		rbErr := conn.Rollback()
 		if rbErr != nil {
-			return errs.NewStdErrorWithInfo(rbErr, errs.Info{"Description": "Transact rollback error", "TransactionError": err})
+			return errs.NewErrorWithInfo("txFunc has error", errs.Info{"TxFuncError": err, "TxRollbackError": rbErr})
+		} else {
+			return errs.NewErrorWithInfo("txFunc has error", errs.Info{"TxFuncError": err})
 		}
-
 	} else {
 		stdErr = conn.Commit()
 		if stdErr != nil {
 			return errs.NewStdErrorWithInfo(stdErr, errs.Info{"Description": "Could not commit transaction"})
 		}
 	}
-
 	return nil
 }
 
 // Query with fixed args
 func (s *Shard) Query(query string, args ...interface{}) (*sql.Rows, errs.Err) {
 	fixArgs(args)
-	rows, stdErr := s.sqlConn.Query(query, args...)
+	rows, stdErr := s.conn.Query(query, args...)
 	if stdErr != nil {
 		return nil, errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 	}
@@ -65,7 +77,7 @@ func (s *Shard) Query(query string, args ...interface{}) (*sql.Rows, errs.Err) {
 // Execute with fixed args
 func (s *Shard) Exec(query string, args ...interface{}) (sql.Result, errs.Err) {
 	fixArgs(args)
-	res, stdErr := s.sqlConn.Exec(query, args...)
+	res, stdErr := s.conn.Exec(query, args...)
 	if stdErr != nil {
 		return nil, errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 	}
@@ -112,17 +124,17 @@ func fixArgs(args []interface{}) {
 	}
 }
 
-func (s *Shard) SelectIntMaybe(query string, args ...interface{}) (num int64, found bool, err errs.Err) {
+func (s *Shard) SelectInt(query string, args ...interface{}) (num int64, found bool, err errs.Err) {
 	found, err = s.queryOne(query, args, &num)
 	return
 }
 
-func (s *Shard) SelectStringMaybe(query string, args ...interface{}) (str string, found bool, err errs.Err) {
+func (s *Shard) SelectString(query string, args ...interface{}) (str string, found bool, err errs.Err) {
 	found, err = s.queryOne(query, args, &str)
 	return
 }
 
-func (s *Shard) SelectUintMaybe(query string, args ...interface{}) (num uint, found bool, err errs.Err) {
+func (s *Shard) SelectUint(query string, args ...interface{}) (num uint, found bool, err errs.Err) {
 	found, err = s.queryOne(query, args, &num)
 	return
 }
@@ -186,7 +198,7 @@ func (s *Shard) Update(query string, args ...interface{}) (rowsAffected int64, e
 	return
 }
 
-func (s *Shard) InsertIgnoreId(query string, args ...interface{}) (err errs.Err) {
+func (s *Shard) InsertIgnoreID(query string, args ...interface{}) (err errs.Err) {
 	_, err = s.Insert(query, args...)
 	return
 }
@@ -282,7 +294,7 @@ func (s *Shard) Select(output interface{}, query string, args ...interface{}) er
 	return nil
 }
 
-const scanOneTypeError = "fun/sql.SelectOne: expects a **struct, e.g var person *Person; c.SelectOne(&person, sql)"
+const scanOneTypeError = "elmo/sql.SelectOne: expects a **struct, e.g var person *Person; c.SelectOne(&person, sql)"
 
 func (s *Shard) SelectOne(output interface{}, query string, args ...interface{}) (err errs.Err) {
 	found, err := s.scanOne(output, query, true, args...)
