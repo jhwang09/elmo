@@ -29,11 +29,9 @@ func (s *Shard) Transact(txFun TxFunc) errs.Err {
 	defer func() {
 		if panicErr := recover(); panicErr != nil {
 			rbErr := conn.Rollback()
-			panic(errs.New(errs.Info{
+			panic(errs.NewStdErrorWithInfo(rbErr, errs.Info{
 				"Description": "Panic during sql transcation",
-				"PanicErr":    panicErr,
-				"RollbackErr": rbErr,
-			}))
+				"PanicErr":    panicErr}))
 		}
 	}()
 
@@ -59,7 +57,7 @@ func (s *Shard) Query(query string, args ...interface{}) (*sql.Rows, errs.Err) {
 	fixArgs(args)
 	rows, stdErr := s.sqlConn.Query(query, args...)
 	if stdErr != nil {
-		return nil, errs.Wrap(stdErr, errInfo("Query sqlConn.Query() error", query, args))
+		return nil, errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 	}
 	return rows, nil
 }
@@ -69,12 +67,12 @@ func (s *Shard) Exec(query string, args ...interface{}) (sql.Result, errs.Err) {
 	fixArgs(args)
 	res, stdErr := s.sqlConn.Exec(query, args...)
 	if stdErr != nil {
-		return nil, errs.Wrap(stdErr, errInfo("Exec sqlConn.Exec() error", query, args))
+		return nil, errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 	}
 	return res, nil
 }
 func IsDuplicateExecError(err errs.Err) bool {
-	str := err.StandardErrorMessage()
+	str := err.StdErrorMessage()
 	return strings.HasPrefix(str, "Error 1060: Duplicate column name") ||
 		strings.HasPrefix(str, "Error 1061: Duplicate key name") ||
 		strings.HasPrefix(str, "Error 1050: Table") ||
@@ -114,78 +112,6 @@ func fixArgs(args []interface{}) {
 	}
 }
 
-func (s *Shard) SelectInt(query string, args ...interface{}) (num int64, err errs.Err) {
-	found, err := s.queryOne(query, args, &num)
-	if err != nil {
-		return
-	}
-	if !found {
-		err = errs.New(errInfo("Query returned no rows", query, args))
-		return
-	}
-	return
-}
-
-func (s *Shard) SelectString(query string, args ...interface{}) (str string, err errs.Err) {
-	var nullStr sql.NullString
-	found, err := s.queryOne(query, args, &nullStr)
-	if err != nil {
-		return
-	}
-	if found {
-		str = nullStr.String
-	} else {
-		err = errs.New(errInfo("Query returned no rows", query, args))
-		return
-	}
-	return
-}
-
-func (s *Shard) SelectUint(query string, args ...interface{}) (num uint, err errs.Err) {
-	found, err := s.queryOne(query, args, &num)
-	if err != nil {
-		return
-	}
-	if !found {
-		err = errs.New(errInfo("Query returned no rows", query, args))
-		return
-	}
-	return
-}
-
-func (s *Shard) SelectIntForce(query string, args ...interface{}) (num int64, err errs.Err) {
-	found, err := s.queryOne(query, args, &num)
-	if err != nil {
-		return
-	}
-	if !found {
-		panic("Query returned no rows: " + query)
-	}
-	return
-}
-
-func (s *Shard) SelectStringForce(query string, args ...interface{}) (str string, err errs.Err) {
-	found, err := s.queryOne(query, args, &str)
-	if err != nil {
-		return
-	}
-	if !found {
-		panic("Query returned no rows: " + query)
-	}
-	return
-}
-
-func (s *Shard) SelectUintForce(query string, args ...interface{}) (num uint, err errs.Err) {
-	found, err := s.queryOne(query, args, &num)
-	if err != nil {
-		return
-	}
-	if !found {
-		panic("Query returned no rows: " + query)
-	}
-	return
-}
-
 func (s *Shard) SelectIntMaybe(query string, args ...interface{}) (num int64, found bool, err errs.Err) {
 	found, err = s.queryOne(query, args, &num)
 	return
@@ -211,11 +137,11 @@ func (s *Shard) queryOne(query string, args []interface{}, out interface{}) (fou
 	if rows.Next() {
 		stdErr := rows.Scan(out)
 		if stdErr != nil {
-			err = errs.Wrap(stdErr, errInfo("queryOne rows.Scan error", query, args))
+			err = errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 			return
 		}
 		if rows.Next() {
-			err = errs.New(errInfo("queryOne query returned too many rows", query, args))
+			err = errs.NewErrorWithInfo("queryOne query returned too many rows", errInfo(query, args))
 			return
 		}
 		found = true
@@ -223,7 +149,7 @@ func (s *Shard) queryOne(query string, args []interface{}, out interface{}) (fou
 
 	stdErr := rows.Err()
 	if stdErr != nil {
-		err = errs.Wrap(stdErr, errInfo("queryOne rows.Err", query, args))
+		err = errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 		return
 	}
 
@@ -240,8 +166,8 @@ func (s *Shard) UpdateNum(num int64, query string, args ...interface{}) (err err
 		return err
 	}
 	if rowsAffected != num {
-		return errs.New(errInfo("UpdateNum affected unexpected number of rows", query, args,
-			errs.Info{"ExpectedRows": num, "AffectedRows": rowsAffected}))
+		return errs.NewErrorWithInfo("UpdateNum affected unexpected number of rows",
+			errInfo(query, args, errs.Info{"ExpectedRows": num, "AffectedRows": rowsAffected}))
 	}
 	return
 }
@@ -254,7 +180,7 @@ func (s *Shard) Update(query string, args ...interface{}) (rowsAffected int64, e
 
 	rowsAffected, stdErr := res.RowsAffected()
 	if stdErr != nil {
-		err = errs.Wrap(stdErr, errInfo("Update RowsAffected error", query, args))
+		err = errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 		return
 	}
 	return
@@ -266,9 +192,10 @@ func (s *Shard) InsertIgnoreId(query string, args ...interface{}) (err errs.Err)
 }
 
 func IsDuplicateEntryError(err errs.Err) bool {
-	str := err.StandardErrorMessage()
+	str := err.StdErrorMessage()
 	return strings.Contains(str, "Duplicate entry")
 }
+
 func (s *Shard) InsertIgnoreDuplicates(query string, args ...interface{}) (err errs.Err) {
 	_, err = s.Insert(query, args...)
 	if err != nil && IsDuplicateEntryError(err) {
@@ -284,7 +211,7 @@ func (s *Shard) Insert(query string, args ...interface{}) (id int64, err errs.Er
 	}
 	id, stdErr := res.LastInsertId()
 	if stdErr != nil {
-		err = errs.Wrap(stdErr, errInfo("Insert LastInsertIderror", query, args))
+		err = errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 		return
 	}
 	return
@@ -294,14 +221,14 @@ func (s *Shard) Select(output interface{}, query string, args ...interface{}) er
 	// Check types
 	var outputPtr = reflect.ValueOf(output)
 	if outputPtr.Kind() != reflect.Ptr {
-		return errs.New(errInfo("Select expects a pointer to a slice of items", query, args))
+		return errs.NewErrorWithInfo("Select expects a pointer to a slice of items", errInfo(query, args))
 	}
 	var outputReflection = reflect.Indirect(outputPtr)
 	if outputReflection.Kind() != reflect.Slice {
-		return errs.New(errInfo("Select expects items to be a slice", query, args))
+		return errs.NewErrorWithInfo("Select expects items to be a slice", errInfo(query, args))
 	}
 	if outputReflection.Len() != 0 {
-		return errs.New(errInfo("Select expects items to be empty", query, args))
+		return errs.NewErrorWithInfo("Select expects items to be empty", errInfo(query, args))
 	}
 	outputReflection.Set(reflect.MakeSlice(outputReflection.Type(), 0, 0))
 
@@ -313,7 +240,7 @@ func (s *Shard) Select(output interface{}, query string, args ...interface{}) er
 	defer rows.Close()
 	columns, stdErr := rows.Columns()
 	if stdErr != nil {
-		return errs.Wrap(stdErr, errInfo("Select rows.Columns error", query, args))
+		return errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 	}
 
 	valType := outputReflection.Type().Elem()
@@ -331,13 +258,13 @@ func (s *Shard) Select(output interface{}, query string, args ...interface{}) er
 		}
 	} else {
 		if len(columns) != 1 {
-			return errs.New(errInfo("Select expected single column in select statement for slice of non-struct values", query, args))
+			return errs.NewErrorWithInfo("Select expected single column in select statement for slice of non-struct values", errInfo(query, args))
 		}
 		for rows.Next() {
 			rawBytes := &sql.RawBytes{}
 			stdErr = rows.Scan(rawBytes)
 			if stdErr != nil {
-				return errs.Wrap(stdErr, errInfo("Select rows.Scan error", query, args))
+				return errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 			}
 			outputValue := reflect.New(valType).Elem()
 			err = scanColumnValue(columns[0], outputValue, rawBytes, query, args)
@@ -350,7 +277,7 @@ func (s *Shard) Select(output interface{}, query string, args ...interface{}) er
 
 	stdErr = rows.Err()
 	if err != nil {
-		return errs.Wrap(stdErr, errInfo("Select rows.Err() error", query, args))
+		return errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 	}
 	return nil
 }
@@ -363,7 +290,7 @@ func (s *Shard) SelectOne(output interface{}, query string, args ...interface{})
 		return
 	}
 	if !found {
-		err = errs.New(errInfo("scanOne got no rows", query, args))
+		err = errs.NewErrorWithInfo("scanOne got no rows", errInfo(query, args))
 		return
 	}
 	return
@@ -395,7 +322,7 @@ func (s *Shard) scanOne(output interface{}, query string, required bool, args ..
 	// Reflect onto struct
 	columns, stdErr := rows.Columns()
 	if stdErr != nil {
-		err = errs.Wrap(stdErr, errInfo("rows.Columns() error", query, args))
+		err = errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 		return
 	}
 	if !rows.Next() {
@@ -417,13 +344,13 @@ func (s *Shard) scanOne(output interface{}, query string, required bool, args ..
 	}
 
 	if rows.Next() {
-		err = errs.New(errInfo("scanOne got multiple rows", query, args))
+		err = errs.NewErrorWithInfo("scanOne got multiple rows", errInfo(query, args))
 		return
 	}
 
 	stdErr = rows.Err()
 	if stdErr != nil {
-		err = errs.Wrap(stdErr, errInfo("scanOne rows.Err() error", query, args))
+		err = errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 		return
 	}
 
@@ -447,7 +374,7 @@ func structFromRow(outputItemStructVal reflect.Value, columns []string, rows *sq
 	}
 	stdErr := rows.Scan(vals...)
 	if stdErr != nil {
-		return errs.Wrap(stdErr, errInfo("structFromRow error", query, args))
+		return errs.NewStdErrorWithInfo(stdErr, errInfo(query, args))
 	}
 
 	for i, column := range columns {
@@ -476,19 +403,19 @@ func scanColumnValue(column string, reflectVal reflect.Value, value *sql.RawByte
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		uintVal, stdErr := strconv.ParseUint(string(bytes), 10, 64)
 		if stdErr != nil {
-			return errs.Wrap(stdErr, errInfo("strconv.ParseUint error", query, args, errs.Info{"Bytes": bytes}))
+			return errs.NewStdErrorWithInfo(stdErr, errInfo(query, args, errs.Info{"Bytes": bytes}))
 		}
 		reflectVal.SetUint(reflect.ValueOf(uintVal).Uint())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		intVal, stdErr := strconv.ParseInt(string(bytes), 10, 64)
 		if stdErr != nil {
-			return errs.Wrap(stdErr, errInfo("strconv.ParseInt error", query, args, errs.Info{"Bytes": bytes}))
+			return errs.NewStdErrorWithInfo(stdErr, errInfo(query, args, errs.Info{"Bytes": bytes}))
 		}
 		reflectVal.SetInt(reflect.ValueOf(intVal).Int())
 	case reflect.Bool:
 		boolVal, stdErr := strconv.ParseBool(string(bytes))
 		if stdErr != nil {
-			return errs.Wrap(stdErr, errInfo("strconv.ParseBool error", query, args, errs.Info{"Bytes": bytes}))
+			return errs.NewStdErrorWithInfo(stdErr, errInfo(query, args, errs.Info{"Bytes": bytes}))
 		}
 		reflectVal.SetBool(reflect.ValueOf(boolVal).Bool())
 	default:
@@ -496,14 +423,14 @@ func scanColumnValue(column string, reflectVal reflect.Value, value *sql.RawByte
 			// byte slice
 			reflectVal.SetBytes(bytes)
 		} else {
-			return errs.New(errInfo("Bad row value for column "+column+": "+reflectVal.Kind().String(), query, args))
+			return errs.NewErrorWithInfo("Bad row value for column "+column+": "+reflectVal.Kind().String(), errInfo(query, args))
 		}
 	}
 	return nil
 }
 
-func errInfo(description, query string, args []interface{}, infos ...errs.Info) errs.Info {
-	info := errs.Info{"Description": description, "Query": query, "Args": args}
+func errInfo(query string, args []interface{}, infos ...errs.Info) errs.Info {
+	info := errs.Info{"Query": query, "Args": args}
 	for _, moreInfo := range infos {
 		for key, val := range moreInfo {
 			info[key] = val

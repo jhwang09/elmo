@@ -97,7 +97,7 @@ func newShard(s *ShardSet, dbName string, autoIncrementOffset int) (*Shard, errs
 	// db.SetMaxIdleConns(n)
 	stdErr := db.Ping()
 	if stdErr != nil {
-		return nil, errs.Wrap(stdErr, nil)
+		return nil, errs.NewStdError(stdErr)
 	}
 	return &Shard{dbName, db, db}, nil
 }
