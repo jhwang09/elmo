@@ -296,21 +296,10 @@ func (s *Shard) Select(output interface{}, query string, args ...interface{}) er
 
 const scanOneTypeError = "elmo/sql.SelectOne: expects a **struct, e.g var person *Person; c.SelectOne(&person, sql)"
 
-func (s *Shard) SelectOne(output interface{}, query string, args ...interface{}) (err errs.Err, found bool) {
-	found, err := s.scanOne(output, query, true, args...)
-	if err != nil {
-		return
-	}
-	if !found {
-		err = errs.NewErrorWithInfo("scanOne got no rows", errInfo(query, args))
-		return
-	}
-	return
+func (s *Shard) SelectOne(output interface{}, query string, args ...interface{}) (found bool, err errs.Err) {
+	return s.scanOne(output, query, args...)
 }
-func (s *Shard) SelectMaybe(output interface{}, query string, args ...interface{}) (found bool, err errs.Err) {
-	return s.scanOne(output, query, false, args...)
-}
-func (s *Shard) scanOne(output interface{}, query string, required bool, args ...interface{}) (found bool, err errs.Err) {
+func (s *Shard) scanOne(output interface{}, query string, args ...interface{}) (found bool, err errs.Err) {
 	// Check types
 	var outputReflectionPtr = reflect.ValueOf(output)
 	if !outputReflectionPtr.IsValid() {

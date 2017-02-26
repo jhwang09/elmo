@@ -60,8 +60,8 @@ func (e *err) StdErrorMessage() string {
 
 func (e *err) String() string {
 	if e.stdErr == nil {
-		return fmt.Sprint("Error | ", e.time, " | Error: ", e.message, " | ", string(e.stack), " | info:[", e.info, "]")
+		return fmt.Sprint("Error | Error: ", e.message, " | ", string(e.stack), " | info:[", e.info, " Time: ", e.time)
 	} else {
-		return fmt.Sprint("Error | ", e.time, " | StdError: ", e.StdErrorMessage(), " | ", string(e.stack), " | info:[", e.info, "]")
+		return fmt.Sprint("Error | StdError: ", e.StdErrorMessage(), " | ", string(e.stack), " | info:[", e.info, " Time: ", e.time)
 	}
 }
