@@ -1,12 +1,12 @@
 package sql
 
 import (
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/jhwang09/elmo/errs"
-	"github.com/jmoiron/sqlx"
 
 	"github.com/jhwang09/elmo/random"
 )
@@ -121,6 +121,6 @@ func (connVars ConnVariables) Join(sep string) string {
 	return strings.Join(kvps, sep)
 }
 
-type Opener func(username, password, dbName, host string, port int, connVars ConnVariables) (*sqlx.DB, errs.Err)
+type Opener func(username, password, dbName, host string, port int, connVars ConnVariables) (*sql.DB, errs.Err)
 
 var dbOpener Opener

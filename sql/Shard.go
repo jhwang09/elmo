@@ -9,8 +9,9 @@ import (
 	"strings"
 
 	"github.com/jhwang09/elmo/errs"
-	"github.com/jmoiron/sqlx"
 )
+
+type Result sql.Result
 
 type TxFunc func(shard *Shard) errs.Err
 
@@ -19,13 +20,17 @@ type Conn interface {
 	Query(query string, args ...interface{}) (*sql.Rows, error)
 }
 
-func NewShard(DBName string, db *sqlx.DB) *Shard {
-	return &Shard{DBName, db, db}
+func NewShard(DBName string, db *sql.DB) (*Shard, errs.Err) {
+	err := db.Ping()
+	if err != nil {
+		return nil, errs.NewStdError(err)
+	}
+	return &Shard{DBName, db, db}, nil
 }
 
 type Shard struct {
 	DBName string
-	db     *sqlx.DB // Nil for transaction and autocommit shard structs
+	db     *sql.DB // Nil for transaction and autocommit shard structs
 	conn   Conn
 }
 
