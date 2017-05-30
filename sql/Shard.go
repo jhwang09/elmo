@@ -57,7 +57,7 @@ func (s *Shard) Transact(txFunc TxFunc) errs.Err {
 		if rbErr != nil {
 			return errs.NewErrorWithInfo("txFunc has error", errs.Info{"TxFuncError": err, "TxRollbackError": rbErr})
 		} else {
-			return errs.NewErrorWithInfo("txFunc has error", errs.Info{"TxFuncError": err})
+			return err
 		}
 	} else {
 		stdErr = conn.Commit()
